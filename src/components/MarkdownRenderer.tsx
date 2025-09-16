@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import rehypeRaw from 'rehype-raw';
-import { Copy, Check } from 'lucide-react';
+import { Copy, Check, X, ZoomIn } from 'lucide-react';
 
 // All Prism imports will be handled dynamically to prevent SSR issues
 
@@ -13,10 +13,39 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
+interface ImageModalProps {
+  src: string;
+  alt: string;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
 interface CodeBlockProps {
   children: string;
   className?: string;
 }
+
+const ImageModal = ({ src, alt, isOpen, onClose }: ImageModalProps) => {
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="relative max-w-full max-h-full" onClick={(e) => e.stopPropagation()}>
+        <button
+          onClick={onClose}
+          className="absolute top-4 right-4 p-2 bg-black/50 text-white rounded-full hover:bg-black/70 transition-colors z-10"
+        >
+          <X className="w-5 h-5" />
+        </button>
+        <img
+          src={src}
+          alt={alt}
+          className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+        />
+      </div>
+    </div>
+  );
+};
 
 const CodeBlock = ({ children, className }: CodeBlockProps) => {
   const [copied, setCopied] = useState(false);
@@ -62,7 +91,19 @@ const CodeBlock = ({ children, className }: CodeBlockProps) => {
   );
 };
 
+// Function to filter out mermaid code blocks
+const filterMermaidBlocks = (content: string): string => {
+  // Remove mermaid code blocks (```mermaid ... ```)
+  return content.replace(/```mermaid\s*\n[\s\S]*?\n```/g, '');
+};
+
+// Function to detect if a URL is an image
+const isImageUrl = (url: string): boolean => {
+  return /\.(jpg|jpeg|png|gif|bmp|svg|webp)(\?.*)?$/i.test(url);
+};
+
 const MarkdownRenderer = ({ content, className = '' }: MarkdownRendererProps) => {
+  const [selectedImage, setSelectedImage] = useState<{ src: string; alt: string } | null>(null);
   useEffect(() => {
     // Dynamically import and apply Prism highlighting
     const applyHighlighting = async () => {
@@ -110,8 +151,18 @@ const MarkdownRenderer = ({ content, className = '' }: MarkdownRendererProps) =>
     applyHighlighting();
   }, [content]);
 
+  // Filter out mermaid blocks from content
+  const filteredContent = filterMermaidBlocks(content);
+
   return (
-    <div className={`prose prose-slate dark:prose-invert max-w-none ${className}`}>
+    <>
+      <ImageModal
+        src={selectedImage?.src || ''}
+        alt={selectedImage?.alt || ''}
+        isOpen={!!selectedImage}
+        onClose={() => setSelectedImage(null)}
+      />
+      <div className={`prose prose-slate dark:prose-invert max-w-none ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
@@ -242,8 +293,61 @@ const MarkdownRenderer = ({ content, className = '' }: MarkdownRendererProps) =>
             );
           },
 
-          // Custom link styling
+          // Custom image rendering with modal functionality
+          img({ src, alt }) {
+            if (!src || typeof src !== 'string') return null;
+
+            if (isImageUrl(src)) {
+              return (
+                <div
+                  className="relative inline-block group cursor-pointer my-4"
+                  onClick={() => setSelectedImage({ src, alt: alt || '' })}
+                >
+                  <img
+                    src={src}
+                    alt={alt || ''}
+                    className="max-w-full h-auto rounded-lg shadow-md hover:shadow-lg transition-shadow"
+                  />
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
+                    <ZoomIn className="w-8 h-8 text-white" />
+                  </div>
+                </div>
+              );
+            }
+
+            return (
+              <img
+                src={src}
+                alt={alt || ''}
+                className="max-w-full h-auto rounded-lg shadow-md"
+              />
+            );
+          },
+
+          // Custom link styling with image detection
           a({ href, children }) {
+            // Check if the link points to an image
+            if (href && isImageUrl(href)) {
+              return (
+                <div
+                  className="relative inline-block group cursor-pointer my-4"
+                  onClick={() => setSelectedImage({
+                    src: href,
+                    alt: typeof children === 'string' ? children : 'Image'
+                  })}
+                >
+                  <img
+                    src={href}
+                    alt={typeof children === 'string' ? children : 'Image'}
+                    className="max-w-full h-auto rounded-lg shadow-md hover:shadow-lg transition-shadow"
+                  />
+                  <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity rounded-lg flex items-center justify-center pointer-events-none">
+                    <ZoomIn className="w-8 h-8 text-white" />
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <a
                 href={href}
@@ -282,9 +386,10 @@ const MarkdownRenderer = ({ content, className = '' }: MarkdownRendererProps) =>
           }
         }}
       >
-        {content}
+        {filteredContent}
       </ReactMarkdown>
-    </div>
+      </div>
+    </>
   );
 };
 
